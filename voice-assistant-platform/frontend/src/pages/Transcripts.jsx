@@ -4,7 +4,8 @@ import SentimentBadge from '../components/SentimentBadge'
 import Button from '../components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import Input from '../components/ui/Input'
-import { Page } from '../components/ui/Page'
+import Badge from '../components/ui/Badge'
+import { Page, PageHeader, PageSubTitle, PageTitle } from '../components/ui/Page'
 import { ScrollText, Search, Clock, ShieldAlert } from 'lucide-react'
 
 const formatTime = (ts) => new Date(ts).toLocaleTimeString()

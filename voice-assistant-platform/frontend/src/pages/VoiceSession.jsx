@@ -7,8 +7,10 @@ import UrgencyIndicator from '../components/UrgencyIndicator'
 import VoiceRecorder from '../components/VoiceRecorder'
 import useVoiceSession from '../hooks/useVoiceSession'
 import Button from '../components/ui/Button'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
+import Badge from '../components/ui/Badge'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card'
 import { Page, PageActions, PageHeader, PageSubTitle, PageTitle } from '../components/ui/Page'
+import { Activity, Brain } from 'lucide-react'
 
 export default function VoiceSession() {
   const { sessionId, isRecording, transcript, response, analysis, audioUrl, isProcessing, error, analyserNode, startRecording, stopRecording, stopSession } = useVoiceSession()

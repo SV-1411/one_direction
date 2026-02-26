@@ -2,6 +2,8 @@ function cx(...xs) {
   return xs.filter(Boolean).join(' ')
 }
 
+import { forwardRef } from 'react'
+
 export function Card({ className, ...props }) {
   return <div className={cx('rounded-2xl border border-slate-200 bg-white shadow-sm transition-all hover:shadow-md hover:border-slate-300', className)} {...props} />
 }
@@ -18,9 +20,9 @@ export function CardDescription({ className, ...props }) {
   return <div className={cx('text-xs font-medium text-slate-400 italic', className)} {...props} />
 }
 
-export function CardContent({ className, ...props }) {
-  return <div className={cx('px-6 py-6 pt-0', className)} {...props} />
-}
+export const CardContent = forwardRef(function CardContent({ className, ...props }, ref) {
+  return <div ref={ref} className={cx('px-6 py-6 pt-0', className)} {...props} />
+})
 
 export function CardFooter({ className, ...props }) {
   return <div className={cx('flex items-center px-6 py-4 border-t border-slate-100', className)} {...props} />

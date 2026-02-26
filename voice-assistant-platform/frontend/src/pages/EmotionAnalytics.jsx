@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Activity, Brain, Clock, ShieldAlert, Zap, AlertTriangle } from 'lucide-react'
 import { Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import client from '../api/client'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
+import Badge from '../components/ui/Badge'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card'
 import { Page, PageHeader, PageSubTitle, PageTitle } from '../components/ui/Page'
 
 const COLORS = ['#22c55e', '#3b82f6', '#eab308', '#ef4444', '#a855f7', '#ec4899']

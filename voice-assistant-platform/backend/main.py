@@ -21,7 +21,7 @@ from services.session_service import session_service
 from models.tts_service import tts_service
 from utils.helpers import generate_api_key, hash_password
 from utils.logger import bind_request_context, clear_request_context, configure_logging, get_logger
-from websockets.audio_stream import router as ws_router
+from ws.audio_stream import router as ws_router
 
 configure_logging()
 logger = get_logger("main")
