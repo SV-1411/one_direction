@@ -1,150 +1,238 @@
 import asyncio
-import os
-import uuid
+import time
 from datetime import datetime, timezone
 
-from database.mongo import get_db
-from models.whisper_service import whisper_service
-from models.ollama_service import ollama_service
-from models.tts_service import tts_service
-from models.sentiment_service import sentiment_service
-from services.urgency_service import score as urgency_score
-from services.fraud_service import evaluate as fraud_evaluate
-from services.n8n_service import trigger_n8n_alert
+from bson import ObjectId
+
 from config import settings
+from gml.memory_engine import memory_engine
+from database.mongo import get_database
+from models.emotion_service import emotion_service
+from models.ollama_service import SYSTEM_PROMPT, ollama_service
+from models.sentiment_service import sentiment_service
+from models.tts_service import tts_service
+from models.whisper_service import whisper_service
+from services.fraud_service import fraud_service
+from services.n8n_service import n8n_service
+from services import urgency_service
+from utils.helpers import generate_uuid
+from utils.logger import get_logger
+
+logger = get_logger("services.session")
 
 
-async def start_session(user_id: str, channel: str) -> str:
-    db = get_db()
-    session_id = str(uuid.uuid4())
-    await db.voice_sessions.insert_one(
-        {
+class SessionService:
+    async def create_session(self, user_id: str, channel: str) -> dict:
+        db = await get_database()
+        session_id = generate_uuid()
+        payload = {
             "session_id": session_id,
-            "user_id": user_id,
+            "user_id": ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id,
             "channel": channel,
             "status": "active",
             "started_at": datetime.now(timezone.utc),
+            "ended_at": None,
             "total_messages": 0,
+            "final_sentiment": None,
             "peak_urgency_score": 0.0,
             "peak_fraud_score": 0.0,
             "escalation_required": False,
             "metadata": {},
         }
-    )
-    return session_id
+        await db.voice_sessions.insert_one(payload)
+        return {"session_id": session_id, "websocket_url": f"/ws/audio/{session_id}"}
 
+    async def process_audio_message(self, session_id: str, audio_bytes: bytes) -> dict:
+        start_time = time.time()
 
-async def process_audio_file(session_id: str, audio_bytes: bytes) -> dict:
-    os.makedirs(settings.audio_storage_path, exist_ok=True)
-    audio_path = os.path.join(settings.audio_storage_path, f"{uuid.uuid4()}.wav")
-    with open(audio_path, "wb") as f:
-        f.write(audio_bytes)
-    return await process_text_like(session_id, audio_path=audio_path)
+        transcription = await whisper_service.transcribe(audio_bytes)
+        transcript = transcription.get("text", "")
+        if not transcript.strip():
+            return {"error": "Could not transcribe audio", "transcript": ""}
 
+        db = await get_database()
+        history = await self.get_session_history(session_id)
 
-async def process_text_like(session_id: str, text: str | None = None, audio_path: str | None = None) -> dict:
-    db = get_db()
-    history = await db.messages.find({"session_id": session_id}).to_list(length=100)
+        session_doc = await db.voice_sessions.find_one({"session_id": session_id})
+        uid = str(session_doc.get("user_id")) if session_doc else None
+        memory_context = ""
+        if uid:
+            try:
+                memory_context = (await memory_engine.recall(db, uid, transcript, top_k=3)).get("memory_context", "")
+            except Exception:
+                memory_context = ""
+        response_text = await ollama_service.chat(transcript, await self._build_ollama_history(history), SYSTEM_PROMPT, user_id=uid, db=db)
 
-    if audio_path:
-        transcript = whisper_service.transcribe(audio_path)
-    else:
-        transcript = text or ""
+        sentiment_result = sentiment_service.analyze(transcript)
+        urgency_score = urgency_service.score(transcript, sentiment_result)
+        fraud_result = fraud_service.evaluate(transcript, history)
+        emotion_result = await emotion_service.analyze_audio(audio_bytes, transcript)
 
-    response_text = await ollama_service.chat(transcript, history)
+        audio_response_bytes = await tts_service.synthesize(response_text)
 
-    try:
-        sentiment = sentiment_service.analyze(transcript)
-    except Exception:
-        sentiment = {"sentiment": "neutral", "sentiment_score": 0.0, "label_scores": {"neutral": 1.0}}
+        analysis = {
+            "sentiment": sentiment_result["sentiment"],
+            "sentiment_score": sentiment_result["sentiment_score"],
+            "label_scores": sentiment_result.get("label_scores", {}),
+            "urgency_score": urgency_score,
+            "urgency_label": urgency_service.get_urgency_label(urgency_score),
+            "fraud_risk": fraud_result["fraud_risk"],
+            "fraud_signals": fraud_result["fraud_signals"],
+            "escalation_required": fraud_result["escalation_required"] or urgency_score > settings.URGENCY_ALERT_THRESHOLD,
+            "emotion": emotion_result,
+            "memory_context": memory_context,
+        }
 
-    urgency = urgency_score(transcript, sentiment)
-    fraud = fraud_evaluate(transcript, history)
+        message_id = await self._store_message(
+            session_id=session_id,
+            role="user",
+            transcript=transcript,
+            response=response_text,
+            analysis=analysis,
+            audio_path=None,
+        )
 
-    try:
-        tts_bytes, tts_path = tts_service.synthesize(response_text)
-    except Exception:
-        tts_bytes, tts_path = b"", None
+        await self._update_session_peaks(session_id, analysis)
 
-    analysis = {
-        **sentiment,
-        "urgency_score": urgency,
-        "fraud_risk": fraud["fraud_risk"],
-        "fraud_signals": fraud["fraud_signals"],
-        "escalation_required": fraud["escalation_required"] or urgency > settings.urgency_alert_threshold,
-    }
+        if analysis["escalation_required"]:
+            trigger_reason = []
+            if fraud_result["fraud_risk"] > settings.FRAUD_ALERT_THRESHOLD:
+                trigger_reason.append("fraud_detected")
+            if urgency_score > settings.URGENCY_ALERT_THRESHOLD:
+                trigger_reason.append("high_urgency")
+            if sentiment_result["sentiment"] == "negative" and sentiment_result["sentiment_score"] > 0.8:
+                trigger_reason.append("negative_sentiment")
+            asyncio.create_task(n8n_service.trigger_alert(session_id, trigger_reason, analysis, {"channel": "web"}))
 
-    now = datetime.now(timezone.utc)
-    await db.messages.insert_many(
-        [
-            {
-                "session_id": session_id,
-                "role": "user",
-                "transcript": transcript,
-                "sentiment": sentiment["sentiment"],
-                "sentiment_score": sentiment["sentiment_score"],
-                "urgency_score": urgency,
-                "fraud_risk": fraud["fraud_risk"],
-                "escalation_required": analysis["escalation_required"],
-                "processing_time_ms": 0,
-                "timestamp": now,
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        return {
+            "message_id": str(message_id),
+            "transcript": transcript,
+            "response_text": response_text,
+            "audio_bytes": audio_response_bytes,
+            "analysis": analysis,
+            "processing_time_ms": processing_time_ms,
+            "transcription_meta": {
+                "language": transcription.get("language"),
+                "duration_seconds": transcription.get("duration_seconds"),
+                "word_count": transcription.get("word_count"),
             },
-            {
-                "session_id": session_id,
-                "role": "assistant",
-                "transcript": response_text,
-                "audio_path": tts_path,
-                "sentiment": "neutral",
-                "sentiment_score": 0.0,
-                "urgency_score": 0.0,
-                "fraud_risk": 0.0,
-                "escalation_required": False,
-                "processing_time_ms": 0,
-                "timestamp": now,
+        }
+
+    async def process_text_message(self, session_id: str, text: str) -> dict:
+        start_time = time.time()
+        transcript = text
+        db = await get_database()
+        history = await self.get_session_history(session_id)
+        session_doc = await db.voice_sessions.find_one({"session_id": session_id})
+        uid = str(session_doc.get("user_id")) if session_doc else None
+        memory_context = ""
+        if uid:
+            try:
+                memory_context = (await memory_engine.recall(db, uid, transcript, top_k=3)).get("memory_context", "")
+            except Exception:
+                memory_context = ""
+        response_text = await ollama_service.chat(transcript, await self._build_ollama_history(history), SYSTEM_PROMPT, user_id=uid, db=db)
+        sentiment_result = sentiment_service.analyze(transcript)
+        urgency_score = urgency_service.score(transcript, sentiment_result)
+        fraud_result = fraud_service.evaluate(transcript, history)
+        emotion_result = emotion_service._text_only_fallback(transcript)
+
+        analysis = {
+            "sentiment": sentiment_result["sentiment"],
+            "sentiment_score": sentiment_result["sentiment_score"],
+            "label_scores": sentiment_result.get("label_scores", {}),
+            "urgency_score": urgency_score,
+            "urgency_label": urgency_service.get_urgency_label(urgency_score),
+            "fraud_risk": fraud_result["fraud_risk"],
+            "fraud_signals": fraud_result["fraud_signals"],
+            "escalation_required": fraud_result["escalation_required"] or urgency_score > settings.URGENCY_ALERT_THRESHOLD,
+            "emotion": emotion_result,
+            "memory_context": memory_context,
+        }
+
+        message_id = await self._store_message(session_id, "user", transcript, response_text, analysis, None)
+        await self._update_session_peaks(session_id, analysis)
+
+        if analysis["escalation_required"]:
+            asyncio.create_task(n8n_service.trigger_alert(session_id, ["text_channel_escalation"], analysis, {"channel": "whatsapp"}))
+
+        return {
+            "message_id": str(message_id),
+            "transcript": transcript,
+            "response_text": response_text,
+            "audio_bytes": None,
+            "analysis": analysis,
+            "processing_time_ms": int((time.time() - start_time) * 1000),
+        }
+
+    async def end_session(self, session_id: str) -> dict:
+        db = await get_database()
+        messages = await db.messages.find({"session_id": session_id, "role": "user"}).sort("timestamp", 1).to_list(length=500)
+        final_sentiment = messages[-1]["sentiment"] if messages else "neutral"
+        await db.voice_sessions.update_one(
+            {"session_id": session_id},
+            {"$set": {"status": "completed", "ended_at": datetime.now(timezone.utc), "final_sentiment": final_sentiment}},
+        )
+
+        session_doc = await db.voice_sessions.find_one({"session_id": session_id})
+        user_id = str(session_doc.get("user_id")) if session_doc else None
+        full_transcript = " ".join([m.get("transcript", "") for m in messages if m.get("transcript")])
+        if full_transcript.strip() and user_id:
+            asyncio.create_task(memory_engine.ingest_session(db, user_id, session_id, full_transcript))
+
+        return {"summary": f"Session {session_id} completed", "total_messages": len(messages), "final_analysis": {"final_sentiment": final_sentiment}}
+
+    async def get_session_history(self, session_id: str) -> list[dict]:
+        db = await get_database()
+        return await db.messages.find({"session_id": session_id}).sort("timestamp", 1).to_list(length=1000)
+
+    async def _build_ollama_history(self, messages: list) -> list[dict]:
+        history = []
+        for msg in messages[-10:]:
+            if msg.get("role") == "user" and msg.get("transcript"):
+                history.append({"role": "user", "content": msg.get("transcript", "")})
+            if msg.get("response"):
+                history.append({"role": "assistant", "content": msg.get("response", "")})
+            elif msg.get("role") == "assistant" and msg.get("transcript"):
+                history.append({"role": "assistant", "content": msg.get("transcript", "")})
+        return history[-20:]
+
+    async def _store_message(self, session_id: str, role: str, transcript: str, response: str, analysis: dict, audio_path: str | None):
+        db = await get_database()
+        now = datetime.now(timezone.utc)
+        user_doc = {
+            "session_id": session_id,
+            "role": role,
+            "transcript": transcript,
+            "response": response,
+            "audio_path": audio_path,
+            "sentiment": analysis["sentiment"],
+            "sentiment_score": analysis["sentiment_score"],
+            "urgency_score": analysis["urgency_score"],
+            "fraud_risk": analysis["fraud_risk"],
+            "fraud_signals": analysis.get("fraud_signals", []),
+            "emotion": analysis.get("emotion"),
+            "escalation_required": analysis["escalation_required"],
+            "processing_time_ms": 0,
+            "timestamp": now,
+        }
+        result = await db.messages.insert_one(user_doc)
+        return result.inserted_id
+
+    async def _update_session_peaks(self, session_id: str, analysis: dict):
+        db = await get_database()
+        update_doc = {
+            "$max": {
+                "peak_urgency_score": analysis["urgency_score"],
+                "peak_fraud_score": analysis["fraud_risk"],
             },
-        ]
-    )
-
-    await db.voice_sessions.update_one(
-        {"session_id": session_id},
-        {
-            "$inc": {"total_messages": 2},
-            "$max": {"peak_urgency_score": urgency, "peak_fraud_score": fraud["fraud_risk"]},
-            "$set": {"escalation_required": analysis["escalation_required"]},
-        },
-    )
-
-    if analysis["escalation_required"]:
-        trigger = "fraud_detected" if fraud["fraud_risk"] > settings.fraud_alert_threshold else "high_urgency"
-        asyncio.create_task(trigger_n8n_alert(session_id, trigger, analysis))
-
-    if tts_path and settings.audio_retention_seconds > 0:
-        asyncio.create_task(_cleanup_file(tts_path, settings.audio_retention_seconds))
-
-    return {
-        "transcript": transcript,
-        "response_text": response_text,
-        "audio_bytes": tts_bytes,
-        "audio_path": tts_path,
-        "analysis": analysis,
-    }
+            "$set": {"final_sentiment": analysis["sentiment"]},
+            "$inc": {"total_messages": 1},
+        }
+        if analysis["escalation_required"]:
+            update_doc["$set"].update({"escalation_required": True, "status": "escalated"})
+        await db.voice_sessions.update_one({"session_id": session_id}, update_doc)
 
 
-async def _cleanup_file(path: str, delay: int):
-    await asyncio.sleep(delay)
-    if os.path.exists(path):
-        os.remove(path)
-
-
-async def end_session(session_id: str):
-    db = get_db()
-    msgs = await db.messages.find({"session_id": session_id, "role": "user"}).to_list(length=500)
-    if msgs:
-        final_sentiment = msgs[-1].get("sentiment", "neutral")
-    else:
-        final_sentiment = "neutral"
-    await db.voice_sessions.update_one(
-        {"session_id": session_id},
-        {"$set": {"status": "completed", "ended_at": datetime.now(timezone.utc), "final_sentiment": final_sentiment}},
-    )
-    return {"summary": "Session completed", "total_messages": len(msgs)}
+session_service = SessionService()

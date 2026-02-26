@@ -1,24 +1,11 @@
-import time
-from collections import defaultdict, deque
-from fastapi import Request, HTTPException
+from fastapi import Request
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+rate_limit_exceeded_handler = RateLimitExceeded
 
 
-class InMemoryRateLimiter:
-    def __init__(self):
-        self.hits: dict[str, deque] = defaultdict(deque)
-
-    def check(self, key: str, limit: int, per_seconds: int) -> None:
-        now = time.time()
-        bucket = self.hits[key]
-        while bucket and bucket[0] <= now - per_seconds:
-            bucket.popleft()
-        if len(bucket) >= limit:
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        bucket.append(now)
-
-
-limiter = InMemoryRateLimiter()
-
-
-def get_client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+def audio_key_func(request: Request) -> str:
+    return f"audio:{get_remote_address(request)}"

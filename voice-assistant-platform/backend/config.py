@@ -1,37 +1,66 @@
-from pydantic import Field
+from functools import lru_cache
+from typing import Any
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "AI Voice Assistant Platform"
-    debug: bool = False
-    log_level: str = "INFO"
+    APP_NAME: str = "AI Voice Assistant Platform"
+    APP_VERSION: str = "1.0.0"
+    DEBUG: bool = False
+    LOG_LEVEL: str = "INFO"
 
-    mongodb_uri: str = "mongodb://mongodb:27017/voice_assistant"
-    jwt_secret_key: str = "change-me"
-    jwt_algorithm: str = "HS256"
-    access_token_minutes: int = 15
-    refresh_token_days: int = 7
+    MONGODB_URI: str = "mongodb://mongodb:27017/voice_assistant"
 
-    whatsapp_token: str | None = None
-    whatsapp_phone_number_id: str | None = None
-    whatsapp_verify_token: str | None = None
-    huggingface_token: str | None = None
-    n8n_webhook_url: str | None = None
+    JWT_SECRET_KEY: str = "change-me"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    ollama_host: str = "http://ollama:11434"
-    ollama_model: str = "llama3"
-    whisper_model_size: str = "base"
-    tts_model: str = "tts_models/en/ljspeech/tacotron2-DDC"
+    WHISPER_MODEL_SIZE: str = "base"
+    OLLAMA_HOST: str = "http://ollama:11434"
+    OLLAMA_MODEL: str = "llama3"
+    TTS_MODEL: str = "tts_models/en/ljspeech/tacotron2-DDC"
+    HUGGINGFACE_TOKEN: str | None = None
 
-    cors_origins: str = "http://localhost:3000"
-    audio_storage_path: str = "./audio_storage"
+    WHATSAPP_TOKEN: str | None = None
+    WHATSAPP_PHONE_NUMBER_ID: str | None = None
+    WHATSAPP_VERIFY_TOKEN: str | None = None
+    N8N_WEBHOOK_URL: str | None = None
 
-    fraud_alert_threshold: float = 0.65
-    urgency_alert_threshold: float = 0.80
-    audio_retention_seconds: int = Field(default=300)
+    CORS_ORIGINS: list[str] | str = Field(default_factory=lambda: ["http://localhost:3000"])
+    FRAUD_ALERT_THRESHOLD: float = 0.65
+    URGENCY_ALERT_THRESHOLD: float = 0.80
+    AUDIO_STORAGE_PATH: str = "./audio_storage"
+
+    DEFAULT_ADMIN_USERNAME: str = "admin"
+    DEFAULT_ADMIN_EMAIL: str = "admin@example.com"
+    DEFAULT_ADMIN_PASSWORD: str = "admin123"
+
+    AUDIO_RETENTION_HOURS: int = 24
+
+    GML_ENABLED: bool = True
+    GML_EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    GML_DECAY_INTERVAL_HOURS: int = 24
+    GML_MIN_CONFIDENCE_THRESHOLD: float = 0.15
+    GML_SIMILARITY_THRESHOLD: float = 0.72
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: Any) -> list[str]:
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            return [v.strip() for v in value.split(",") if v.strip()]
+        return ["http://localhost:3000"]
 
 
-settings = Settings()
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
