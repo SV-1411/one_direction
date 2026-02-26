@@ -1,0 +1,1 @@
+export default function SentimentBadge({sentiment}){const c=sentiment==='positive'?'green':sentiment==='negative'?'red':'goldenrod';return <span style={{background:c,padding:'4px 8px'}}>{sentiment}</span>}
