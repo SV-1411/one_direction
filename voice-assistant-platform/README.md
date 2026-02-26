@@ -120,3 +120,16 @@ curl -X POST http://localhost:8000/api/voice/end-session \
 | AUDIO_STORAGE_PATH | Yes | Local audio output path |
 | LOG_LEVEL | Yes | Logging level |
 | DEBUG | Yes | Debug mode |
+
+
+## Resolving merge conflicts with `main`
+
+If your merge against `main` stops with conflicts in the backend/platform files, run:
+
+```bash
+git merge main
+./voice-assistant-platform/scripts/resolve_main_conflicts.sh
+```
+
+This helper resolves the known conflict set by preferring the current branch content (`--ours`) and stages the files so you can finish with `git commit`.
+
