@@ -34,10 +34,6 @@ export default function AudioPlayer({ src }) {
   if (!src) return null
 
   return (
-<<<<<<< HEAD
-    <div className="rounded border bg-white p-3">
-      <audio ref={audioRef} src={src} onTimeUpdate={onTime} onLoadedMetadata={onTime} onEnded={() => setPlaying(false)} />
-=======
     <div className="w-full animate-in slide-in-from-top-2 duration-500 mt-4">
       <div className="rounded-2xl bg-indigo-50/50 p-4 border border-indigo-100/50 flex flex-col sm:flex-row items-center gap-4">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg shadow-indigo-200">
@@ -55,7 +51,6 @@ export default function AudioPlayer({ src }) {
           padding: 0;
         }
       `}} />
->>>>>>> backup-new-ui
       <div className="flex items-center gap-3">
         <button className="rounded bg-blue-600 px-3 py-1 text-white" onClick={togglePlay}>{playing ? 'Pause' : 'Play'}</button>
         <input type="range" min="0" max="100" value={duration ? (current / duration) * 100 : 0} onChange={seek} className="flex-1" />

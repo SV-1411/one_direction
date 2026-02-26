@@ -1,15 +1,8 @@
-<<<<<<< HEAD
-import { Bell, ChevronDown } from 'lucide-react'
-import { useMemo, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
-import { useAuthStore } from '../store/authStore'
-=======
 import { Bell, ChevronDown, Settings } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import Button from './ui/Button'
->>>>>>> backup-new-ui
 
 export default function Navbar() {
   const location = useLocation()
@@ -20,28 +13,6 @@ export default function Navbar() {
   const title = useMemo(() => location.pathname.replace('/', '') || 'dashboard', [location.pathname])
 
   return (
-<<<<<<< HEAD
-    <header className="flex items-center justify-between border-b bg-white px-4 py-3">
-      <div>
-        <div className="text-sm text-gray-500">Home / {title}</div>
-        <h1 className="text-lg font-semibold capitalize">{title}</h1>
-      </div>
-      <div className="flex items-center gap-4">
-        <button className="relative rounded p-2 hover:bg-gray-100">
-          <Bell size={18} />
-          <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] text-white">3</span>
-        </button>
-        <div className="relative">
-          <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 rounded border px-3 py-1.5 text-sm">
-            {user?.username || 'User'} <ChevronDown size={14} />
-          </button>
-          {open ? (
-            <div className="absolute right-0 mt-2 w-40 rounded border bg-white p-1 text-sm shadow">
-              <Link to="/settings" className="block rounded px-2 py-1 hover:bg-gray-100">Settings</Link>
-              <button onClick={logout} className="w-full rounded px-2 py-1 text-left hover:bg-gray-100">Logout</button>
-            </div>
-          ) : null}
-=======
     <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-emerald-100/50 bg-white/60 px-8 backdrop-blur-xl transition-all duration-300">
       <div className="flex items-center gap-4">
         <div className="hidden sm:block">
@@ -102,7 +73,6 @@ export default function Navbar() {
               </div>
             </>
           )}
->>>>>>> backup-new-ui
         </div>
       </div>
     </header>

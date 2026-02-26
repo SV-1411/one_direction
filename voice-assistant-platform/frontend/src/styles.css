@@ -1,16 +1,9 @@
-<<<<<<< HEAD
-=======
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
->>>>>>> backup-new-ui
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-<<<<<<< HEAD
-body { margin: 0; font-family: Inter, system-ui, sans-serif; }
-* { box-sizing: border-box; }
-=======
 @layer base {
   body {
     @apply bg-slate-50 text-slate-900 antialiased;
@@ -110,4 +103,3 @@ body { margin: 0; font-family: Inter, system-ui, sans-serif; }
 .font-mono {
   font-family: 'JetBrains Mono', monospace !important;
 }
->>>>>>> backup-new-ui

@@ -1,13 +1,7 @@
-<<<<<<< HEAD
-import { AlertTriangle, BarChart3, Brain, LayoutDashboard, Mic, ScrollText, Settings } from 'lucide-react'
-import { NavLink } from 'react-router-dom'
-import { useAuthStore } from '../store/authStore'
-=======
 import { AlertTriangle, BarChart3, Brain, LayoutDashboard, Mic, ScrollText, Settings, Activity } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import Badge from './ui/Badge'
->>>>>>> backup-new-ui
 
 const links = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -23,11 +17,6 @@ const links = [
 export default function Sidebar() {
   const user = useAuthStore((s) => s.user)
   return (
-<<<<<<< HEAD
-    <aside className="h-screen w-64 border-r bg-white p-4 hidden md:flex md:flex-col">
-      <div className="mb-6 text-lg font-bold">Voice Assistant</div>
-      <nav className="space-y-1">
-=======
     <aside className="h-screen w-72 shrink-0 border-r border-emerald-100 bg-white/80 backdrop-blur-xl px-4 py-8 hidden md:flex md:flex-col sticky top-0 z-40">
       <div className="mb-10 px-4 flex items-center gap-3 group cursor-default">
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-600 shadow-lg shadow-emerald-200 text-white transition-transform duration-500 group-hover:rotate-12">
@@ -41,19 +30,12 @@ export default function Sidebar() {
 
       <nav className="flex-1 space-y-1.5 px-2">
         <div className="px-4 mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Main Menu</div>
->>>>>>> backup-new-ui
         {links.map((l) => {
           const Icon = l.icon
           return (
             <NavLink
               key={l.to}
               to={l.to}
-<<<<<<< HEAD
-              className={({ isActive }) => `flex items-center gap-2 rounded px-3 py-2 text-sm ${isActive ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}`}
-            >
-              <Icon size={16} />
-              {l.label} {l.badge ? <span className="ml-auto rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700">{l.badge}</span> : null}
-=======
               className={({ isActive }) =>
                 `group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition-all duration-300 ${
                   isActive
@@ -69,16 +51,10 @@ export default function Sidebar() {
                   {l.badge}
                 </Badge>
               ) : null}
->>>>>>> backup-new-ui
             </NavLink>
           )
         })}
       </nav>
-<<<<<<< HEAD
-      <div className="mt-auto rounded border bg-gray-50 p-3 text-xs">
-        <div>{user?.username || 'Guest'}</div>
-        <div className="mt-1 inline-flex rounded bg-gray-200 px-2 py-0.5 uppercase">{user?.role || 'agent'}</div>
-=======
 
       <div className="mt-auto pt-6 border-t border-emerald-50 px-2">
         <div className="flex items-center gap-3 rounded-2xl bg-slate-900 p-4 shadow-xl transition-all duration-300 hover:scale-[1.02]">
@@ -90,7 +66,6 @@ export default function Sidebar() {
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/80">{user?.role || 'Agent'}</span>
           </div>
         </div>
->>>>>>> backup-new-ui
       </div>
     </aside>
   )

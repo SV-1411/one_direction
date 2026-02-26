@@ -1,14 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-<<<<<<< HEAD
-import useAuth from '../hooks/useAuth'
-=======
 import { Mic } from 'lucide-react'
 import useAuth from '../hooks/useAuth'
 import Button from '../components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
 import Input from '../components/ui/Input'
->>>>>>> backup-new-ui
 
 export default function Login() {
   const { login, isLoading } = useAuth()
@@ -32,24 +28,6 @@ export default function Login() {
   }
 
   return (
-<<<<<<< HEAD
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
-      <form onSubmit={submit} className="w-full max-w-md rounded-xl bg-white p-6 shadow">
-        <h1 className="mb-1 text-2xl font-bold">AI Voice Assistant</h1>
-        <p className="mb-4 text-sm text-gray-500">Sign in to continue</p>
-
-        <label className="mb-2 block text-sm">Username</label>
-        <input className="mb-3 w-full rounded border px-3 py-2" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
-
-        <label className="mb-2 block text-sm">Password</label>
-        <input className="mb-2 w-full rounded border px-3 py-2" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
-
-        {error ? <div className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">{error}</div> : null}
-
-        <button disabled={isLoading} className="w-full rounded bg-blue-600 py-2 font-medium text-white disabled:opacity-60">
-          {isLoading ? 'Signing in...' : 'Login'}
-        </button>
-=======
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4 selection:bg-emerald-100 selection:text-emerald-900">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,#ecfdf5_0%,transparent_50%),radial-gradient(circle_at_100%_100%,#f0fdf4_0%,transparent_50%)]" />
       <form onSubmit={submit} className="relative w-full max-w-md animate-in fade-in zoom-in-95 duration-700">
@@ -108,7 +86,6 @@ export default function Login() {
           </CardContent>
         </Card>
         <p className="mt-8 text-center text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Neural Engine v4.2.0 • Secured</p>
->>>>>>> backup-new-ui
       </form>
     </div>
   )
