@@ -1,0 +1,1 @@
+export default function VoiceRecorder({recording,onStart,onStop}){return <button onClick={recording?onStop:onStart} style={{width:120,height:120,borderRadius:'50%',background:recording?'red':'green',color:'white'}}>{recording?'Stop':'Mic'}</button>}
