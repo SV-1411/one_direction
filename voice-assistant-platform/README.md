@@ -131,5 +131,17 @@ git merge main
 ./voice-assistant-platform/scripts/resolve_main_conflicts.sh
 ```
 
-This helper resolves the known conflict set by preferring the current branch content (`--ours`) and stages the files so you can finish with `git commit`.
+The helper resolves and stages the known conflict set with `--ours` (current branch) by default.
+If you need to keep `main`'s side for those files instead, use `--theirs`:
+
+```bash
+./voice-assistant-platform/scripts/resolve_main_conflicts.sh --theirs
+```
+
+After running, validate there are no unresolved conflicts and complete the merge:
+
+```bash
+git status
+git commit
+```
 
