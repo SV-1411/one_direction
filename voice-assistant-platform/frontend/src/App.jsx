@@ -20,6 +20,7 @@ function Protected({ children }) {
 
 function AppLayout() {
   return (
+<<<<<<< HEAD
     <div className="flex min-h-screen bg-slate-50">
       <Sidebar />
       <main className="flex-1">
@@ -35,6 +36,25 @@ function AppLayout() {
           <Route path="/gml" element={<GMLMemory />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+=======
+    <div className="flex min-h-screen bg-slate-50/50 selection:bg-emerald-100 selection:text-emerald-900">
+      <Sidebar />
+      <main className="flex-1 overflow-y-auto overflow-x-hidden">
+        <Navbar />
+        <div className="animate-in fade-in duration-700">
+          <Routes>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/voice" element={<VoiceSession />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/transcripts" element={<Transcripts />} />
+            <Route path="/fraud-alerts" element={<FraudAlerts />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/emotion" element={<EmotionAnalytics />} />
+            <Route path="/gml" element={<GMLMemory />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </div>
+>>>>>>> backup-new-ui
       </main>
     </div>
   )
