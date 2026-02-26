@@ -132,10 +132,18 @@ git merge main
 ```
 
 The helper resolves and stages the known conflict set with `--ours` (current branch) by default.
-If you need to keep `main`'s side for those files instead, use `--theirs`:
+It also resolves any additional unmerged files that may appear (for example, if conflict scope changed in `main`).
+
+If you need to keep `main`'s side instead, use `--theirs`:
 
 ```bash
 ./voice-assistant-platform/scripts/resolve_main_conflicts.sh --theirs
+```
+
+If you only want the historical known file list and *not* extra files, use:
+
+```bash
+./voice-assistant-platform/scripts/resolve_main_conflicts.sh --known-only
 ```
 
 After running, validate there are no unresolved conflicts and complete the merge:
