@@ -1,0 +1,14 @@
+# Dependency directories
+node_modules/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Build artifacts
+dist/
+build/
+
+# Environment files
+.env
+.env.*
