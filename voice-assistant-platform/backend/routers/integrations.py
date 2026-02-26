@@ -1,53 +1,56 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Request
 
-from config import settings
-from database.mongo import get_db
-from services.session_service import process_text_like, start_session
-from services.whatsapp_service import ensure_configured, send_message
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from database.mongo import get_database
+from middleware.auth_middleware import get_current_admin
+from services.whatsapp_service import whatsapp_service
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
 
 @router.get("/whatsapp/webhook")
-async def verify_webhook(hub_mode: str | None = None, hub_verify_token: str | None = None, hub_challenge: str | None = None):
-    if hub_mode == "subscribe" and hub_verify_token == settings.whatsapp_verify_token:
-        return int(hub_challenge or 0)
-    raise HTTPException(status_code=403, detail="Verification failed")
+async def whatsapp_verify(
+    hub_mode: str | None = Query(default=None, alias="hub.mode"),
+    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
+):
+    verified = whatsapp_service.verify_webhook(hub_mode, hub_verify_token, hub_challenge)
+    if verified is None:
+        raise HTTPException(status_code=403, detail="Verification failed")
+    return int(verified)
 
 
 @router.post("/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
-    ensure_configured()
     payload = await request.json()
-    db = get_db()
-    try:
-        entry = payload["entry"][0]["changes"][0]["value"]["messages"][0]
-        user_text = entry.get("text", {}).get("body", "")
-        from_number = entry.get("from")
-        sid = await start_session("whatsapp", "whatsapp")
-        result = await process_text_like(sid, text=user_text)
-        await send_message(from_number, result["response_text"])
-        await db.integration_logs.insert_one({
-            "integration": "whatsapp",
-            "direction": "inbound",
-            "payload": payload,
-            "status": "success",
-            "timestamp": datetime.now(timezone.utc),
-        })
-        return {"status": "ok"}
-    except Exception as exc:
-        await db.integration_logs.insert_one({
-            "integration": "whatsapp",
-            "direction": "inbound",
-            "payload": payload,
-            "status": "failed",
-            "error": str(exc),
-            "timestamp": datetime.now(timezone.utc),
-        })
-        raise
+    await whatsapp_service.process_incoming(payload)
+    return {"received": True}
 
 
 @router.post("/crm/mock")
-async def crm_mock(payload: dict):
-    return {"status": "received", "payload": payload}
+async def mock_crm(payload: dict):
+    db = await get_database()
+    ts = datetime.now(timezone.utc)
+    await db.integration_logs.insert_one(
+        {
+            "integration": "crm",
+            "direction": "outbound",
+            "payload": payload,
+            "status": "success",
+            "timestamp": ts,
+        }
+    )
+    return {"received": True, "logged_at": ts.isoformat()}
+
+
+@router.get("/logs")
+async def integration_logs(page: int = 1, limit: int = 20, _admin=Depends(get_current_admin)):
+    db = await get_database()
+    query = {}
+    cursor = db.integration_logs.find(query).sort("timestamp", -1).skip((page - 1) * limit).limit(limit)
+    items = await cursor.to_list(length=limit)
+    for i in items:
+        i["_id"] = str(i["_id"])
+    total = await db.integration_logs.count_documents(query)
+    return {"items": items, "total": total, "page": page, "limit": limit}

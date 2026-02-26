@@ -1,7 +1,10 @@
+import asyncio
+import time
+
 from config import settings
 from utils.logger import get_logger
 
-logger = get_logger("sentiment")
+logger = get_logger("models.sentiment")
 
 try:
     from transformers import pipeline
@@ -10,36 +13,67 @@ except Exception:  # pragma: no cover
 
 
 class SentimentService:
-    def __init__(self):
-        self.classifier = None
-        self.available = False
+    LABEL_MAP = {"label_0": "negative", "label_1": "neutral", "label_2": "positive", "negative": "negative", "neutral": "neutral", "positive": "positive"}
 
-    def load(self):
+    def __init__(self):
+        self.available = False
+        self.pipeline = None
+        self.model_name = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+        self.load_time_ms = 0
+        self.error: str | None = None
+
+    async def load_model(self) -> None:
         if pipeline is None:
-            logger.warning("sentiment_import_failed")
+            self.error = "transformers unavailable"
             return
+        start = time.perf_counter()
         try:
-            self.classifier = pipeline(
-                "sentiment-analysis",
-                model="cardiffnlp/twitter-roberta-base-sentiment-latest",
-                token=settings.huggingface_token or None,
+            self.pipeline = await asyncio.to_thread(
+                pipeline,
+                "text-classification",
+                model=self.model_name,
+                top_k=None,
+                token=settings.HUGGINGFACE_TOKEN or None,
             )
             self.available = True
-            logger.info("sentiment_loaded")
+            self.error = None
+            self.load_time_ms = int((time.perf_counter() - start) * 1000)
         except Exception as exc:
-            logger.warning("sentiment_unavailable", error=str(exc))
+            self.available = False
+            self.error = str(exc)
 
     def analyze(self, text: str) -> dict:
-        if not self.available or self.classifier is None:
-            raise RuntimeError("SENTIMENT_UNAVAILABLE")
-        result = self.classifier(text, return_all_scores=True)[0]
-        mapped = {row["label"].lower(): float(row["score"]) for row in result}
-        sentiment = max(mapped, key=mapped.get)
-        return {
-            "sentiment": sentiment,
-            "sentiment_score": mapped[sentiment],
-            "label_scores": mapped,
+        fallback = {
+            "sentiment": "neutral",
+            "sentiment_score": 0.5,
+            "label_scores": {"positive": 0.33, "neutral": 0.34, "negative": 0.33},
         }
+        if not self.available or self.pipeline is None:
+            return {**fallback, "error": "sentiment model unavailable"}
+
+        try:
+            clean_text = (text or "")[:512]
+            raw = self.pipeline(clean_text)
+            # pipeline(top_k=None) returns [ [..scores..] ]
+            if raw and isinstance(raw[0], list):
+                scores_raw = raw[0]
+            else:
+                scores_raw = raw
+
+            label_scores = {"positive": 0.0, "neutral": 0.0, "negative": 0.0}
+            for row in scores_raw:
+                label = self.LABEL_MAP.get(str(row.get("label", "")).lower(), str(row.get("label", "")).lower())
+                if label in label_scores:
+                    label_scores[label] = float(row.get("score", 0.0))
+
+            winner = max(label_scores, key=label_scores.get)
+            return {
+                "sentiment": winner,
+                "sentiment_score": float(label_scores[winner]),
+                "label_scores": label_scores,
+            }
+        except Exception as exc:
+            return {**fallback, "error": str(exc)}
 
 
 sentiment_service = SentimentService()

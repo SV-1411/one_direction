@@ -1,8 +1,19 @@
-import client from '../api/client'
+import { useEffect } from 'react'
 import { useAuthStore } from '../store/authStore'
 
-export default function useAuth(){
-  const setAuth = useAuthStore((s)=>s.setAuth)
-  const login = async (username,password)=>{ const {data}=await client.post('/api/auth/login',{username,password}); setAuth({access_token:data.access_token,user:{username}}) }
-  return { login }
+export default function useAuth() {
+  const store = useAuthStore()
+
+  useEffect(() => {
+    store.initialize()
+  }, [])
+
+  return {
+    user: store.user,
+    isAuthenticated: store.isAuthenticated,
+    isLoading: store.isLoading,
+    login: store.login,
+    logout: store.logout,
+    refreshAccessToken: store.refreshAccessToken,
+  }
 }

@@ -1,30 +1,82 @@
 version: '3.9'
+
 services:
-  mongodb:
-    image: mongo:7
-    ports: ['27017:27017']
-    volumes: [mongo_data:/data/db]
-  ollama:
-    image: ollama/ollama:latest
-    ports: ['11434:11434']
-    volumes: [ollama_data:/root/.ollama]
-    entrypoint: ["/bin/sh","-c","ollama serve & sleep 5 && ollama pull ${OLLAMA_MODEL:-llama3} && wait"]
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     env_file: .env
-    depends_on: [mongodb, ollama]
+    environment:
+      - SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence_transformers
     ports: ['8000:8000']
     volumes:
       - ./audio_storage:/app/audio_storage
+      - sentence_transformers_cache:/app/.cache/sentence_transformers
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks: [voice-net]
+
   frontend:
-    image: node:20-alpine
-    working_dir: /app
-    env_file: .env
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    ports: ['3000:80']
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks: [voice-net]
+
+  mongodb:
+    image: mongo:7.0
+    ports: ['27017:27017']
     volumes:
-      - ./frontend:/app
-    command: sh -c "npm install && npm run dev"
-    depends_on: [backend]
-    ports: ['3000:3000']
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks: [voice-net]
+
+  ollama:
+    image: ollama/ollama:latest
+    ports: ['11434:11434']
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: >
+      /bin/sh -c "ollama serve &
+      sleep 5 &&
+      ollama pull llama3 &&
+      wait"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    networks: [voice-net]
+
+networks:
+  voice-net:
+    driver: bridge
+
 volumes:
-  mongo_data:
+  mongodb_data:
   ollama_data:
+  audio_storage:
+
+  sentence_transformers_cache:
