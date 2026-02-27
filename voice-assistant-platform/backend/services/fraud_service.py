@@ -65,30 +65,41 @@ class FraudService:
             return 0.1
         return 0.0
 
-    def evaluate(self, transcript: str, session_history: list[dict]) -> dict:
+    def evaluate(self, transcript: str, session_history: list[dict], audio_features: dict = None) -> dict:
         score = 0.0
         signals = []
 
-        otp_count, otp_signals = self._count_pattern_matches(transcript, self.OTP_PATTERNS)
+        # Convert to lowercase once
+        text_lower = (transcript or "").lower()
+
+        # 1. Pattern matching (Text-based)
+        otp_count, otp_signals = self._count_pattern_matches(text_lower, self.OTP_PATTERNS)
         if otp_count > 0:
             history_otp_count = sum(
                 1
                 for msg in session_history[-10:]
-                if msg.get("role") == "user" and self._count_pattern_matches(msg.get("transcript", ""), self.OTP_PATTERNS)[0] > 0
+                if msg.get("role") == "user" and self._count_pattern_matches((msg.get("transcript", "") or "").lower(), self.OTP_PATTERNS)[0] > 0
             )
-            score += min(0.3 + (history_otp_count * 0.15), 0.9)
+            score += 0.5 + (history_otp_count * 0.2)
             signals.extend(otp_signals)
 
-        at_count, at_signals = self._count_pattern_matches(transcript, self.ACCOUNT_TAKEOVER_PATTERNS)
+        at_count, at_signals = self._count_pattern_matches(text_lower, self.ACCOUNT_TAKEOVER_PATTERNS)
         if at_count > 0:
-            score += min(at_count * 0.25, 0.75)
+            score += 0.4 + (at_count * 0.2)
             signals.extend(at_signals)
 
-        sd_count, sd_signals = self._count_pattern_matches(transcript, self.SENSITIVE_DATA_PATTERNS)
+        sd_count, sd_signals = self._count_pattern_matches(text_lower, self.SENSITIVE_DATA_PATTERNS)
         if sd_count > 0:
-            score += min(sd_count * 0.4, 0.8)
+            score += 0.6 + (sd_count * 0.2)
             signals.extend(sd_signals)
 
+        # High-risk financial keywords
+        financial_keywords = ["bank", "account", "login", "password", "social security", "card number", "cvv", "routing"]
+        if any(kw in text_lower for kw in financial_keywords):
+            score += 0.3
+            signals.append("financial_terms_detected")
+
+        # 2. History-based heuristics
         rep_score = self._check_repetition(transcript, session_history)
         if rep_score > 0:
             score += rep_score
@@ -99,11 +110,22 @@ class FraudService:
             score += ts_score
             signals.append("abnormal_topic_switching")
 
+        # 3. Audio-based stress signals
+        if audio_features:
+            tremor = audio_features.get("tremor", 0)
+            pitch_std = audio_features.get("pitch_std", 0)
+            energy = audio_features.get("energy_rms", 0)
+            
+            # Social engineering often involves high-energy "forced urgency"
+            if tremor > 0.04 or pitch_std > 40 or energy > 0.1:
+                score += 0.25
+                signals.append("vocal_urgency_detected")
+
         fraud_risk = min(score, 1.0)
         return {
             "fraud_risk": round(fraud_risk, 3),
             "fraud_signals": list(set(signals)),
-            "escalation_required": fraud_risk > settings.FRAUD_ALERT_THRESHOLD,
+            "escalation_required": fraud_risk >= settings.FRAUD_ALERT_THRESHOLD,
         }
 
 

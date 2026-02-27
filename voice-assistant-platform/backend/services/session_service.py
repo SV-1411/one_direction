@@ -99,8 +99,11 @@ class SessionService:
 
         sentiment_result = sentiment_service.analyze(transcript)
         urgency_score = urgency_service.score(transcript, sentiment_result)
-        fraud_result = fraud_service.evaluate(transcript, history)
         emotion_result = await emotion_service.analyze_audio(audio_bytes, transcript)
+        
+        # Pass audio features to fraud service for better detection
+        audio_features = emotion_result.get("audio_features", {})
+        fraud_result = fraud_service.evaluate(transcript, history, audio_features)
 
         audio_response_bytes = await tts_service.synthesize(response_text)
 

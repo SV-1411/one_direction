@@ -43,6 +43,14 @@ export default function EmotionPanel({ emotion }) {
   const scores = emotion.emotion_scores || {}
   const features = emotion.audio_features || {}
 
+  // Log incoming data to verify dynamic scores
+  console.log('[EmotionPanel] Raw Data:', {
+    dominant,
+    score: emotion.dominant_score,
+    all_scores: scores,
+    features
+  })
+
   return (
     <Card className="overflow-hidden">
       <CardHeader className="py-3 border-b border-slate-100 bg-slate-50/50">
