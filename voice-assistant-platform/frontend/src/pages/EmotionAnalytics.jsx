@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, Brain, Clock, ShieldAlert, Zap, AlertTriangle } from 'lucide-react'
 import { Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import client from '../api/client'
+import client, { analyticsAPI } from '../api/client'
 import Badge from '../components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card'
 import { Page, PageHeader, PageSubTitle, PageTitle } from '../components/ui/Page'
@@ -12,7 +12,7 @@ export default function EmotionAnalytics() {
   const [data, setData] = useState(null)
 
   useEffect(() => {
-    client.get('/api/emotion/trends').then((r) => setData(r.data)).catch(() => {})
+    analyticsAPI.getEmotionTrends().then((r) => setData(r.data)).catch(() => {})
   }, [])
 
   const pieData = useMemo(() => {

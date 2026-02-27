@@ -14,11 +14,14 @@ logger = get_logger("models.whisper")
 try:
     import soundfile as sf
     import torch
-    import whisper
+    from transformers import pipeline
+    from pydub import AudioSegment
+    import io
 except Exception:  # pragma: no cover
-    whisper = None
+    pipeline = None
     torch = None
     sf = None
+    AudioSegment = None
 
 
 class WhisperService:
@@ -26,95 +29,102 @@ class WhisperService:
     SAMPLE_RATE = 16000
 
     def __init__(self):
-        self.model = None
+        self.pipe = None
         self.available = False
-        self.model_name = settings.WHISPER_MODEL_SIZE
+        self.model_name = "openai/whisper-base"
         self.load_time_ms = 0
         self.error: str | None = None
         self._stream_buffers: dict[str, bytes] = {}
         self._silence_seconds: dict[str, float] = {}
 
     async def load_model(self) -> None:
-        if whisper is None:
-            self.error = "whisper import unavailable"
+        if pipeline is None:
+            self.error = "transformers pipeline unavailable"
             return
         start = time.perf_counter()
         try:
+            # Using transformers pipeline which can handle raw numpy arrays 
+            # and doesn't strictly depend on system-wide ffmpeg for raw inference.
             device = "cuda" if torch and torch.cuda.is_available() else "cpu"
-            self.model = await asyncio.to_thread(whisper.load_model, self.model_name, device)
+            self.pipe = await asyncio.to_thread(
+                pipeline,
+                "automatic-speech-recognition",
+                model=self.model_name,
+                device=device
+            )
             self.available = True
             self.error = None
             self.load_time_ms = int((time.perf_counter() - start) * 1000)
-            logger.info("whisper_loaded", model=self.model_name, device=device, load_time_ms=self.load_time_ms)
+            logger.info("whisper_pipeline_loaded", model=self.model_name, device=device, load_time_ms=self.load_time_ms)
         except Exception as exc:
             self.error = str(exc)
             self.available = False
             logger.error("whisper_load_failed", error=str(exc))
 
     async def transcribe(self, audio_bytes: bytes) -> dict[str, Any]:
-        if not self.available or self.model is None:
+        if not self.available or self.pipe is None:
+            logger.error("whisper_transcribe_aborted", reason="not_available")
             return {"text": "", "error": "Whisper unavailable", "duration_seconds": 0}
 
-        temp_path = None
+        logger.info("whisper_transcribe_start", bytes_len=len(audio_bytes))
+        
         try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-                temp_file.write(audio_bytes)
-                temp_path = temp_file.name
+            # The frontend now sends raw 16kHz Int16 PCM data.
+            # No need for pydub or ffmpeg decoding.
+            
+            # Convert bytes to numpy int16, then normalize to float32 [-1, 1]
+            audio_np = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+            
+            if len(audio_np) == 0:
+                return {"text": "", "error": "Empty audio data", "duration_seconds": 0}
 
-            result = await asyncio.to_thread(self.model.transcribe, temp_path, fp16=False)
+            duration_seconds = len(audio_np) / self.SAMPLE_RATE
+            logger.info("whisper_audio_received", duration=duration_seconds, sample_count=len(audio_np))
+
+            # Use transformers pipeline for transcription
+            result = await asyncio.to_thread(self.pipe, audio_np)
             text = (result.get("text") or "").strip()
-            language = result.get("language", "unknown")
-            segments = result.get("segments", [])
-
-            duration_seconds = 0.0
-            if segments:
-                duration_seconds = float(max((s.get("end", 0.0) for s in segments), default=0.0))
-            elif sf is not None:
-                duration_seconds = float(sf.info(temp_path).duration)
+            
+            logger.info("whisper_transcribe_success", text_len=len(text), text_preview=text[:50])
 
             return {
                 "text": text,
-                "language": language,
-                "segments": segments,
+                "language": "unknown",
+                "segments": [],
                 "duration_seconds": duration_seconds,
                 "word_count": len(text.split()),
             }
         except Exception as exc:
-            logger.error("whisper_transcribe_failed", error=str(exc))
+            logger.error("whisper_transcribe_failed", error=str(exc), exc_info=True)
             return {"text": "", "error": str(exc), "duration_seconds": 0}
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
 
     async def transcribe_stream(self, audio_chunk: bytes, session_id: str) -> str:
         previous = self._stream_buffers.get(session_id, b"")
         self._stream_buffers[session_id] = previous + audio_chunk
         buffer = self._stream_buffers[session_id]
 
-        # must have at least 1 second
-        if len(buffer) < self.SAMPLE_RATE * 2:
+        # Use a small "processing window" to detect intents mid-prompt
+        # Process every ~1.5s of new audio
+        chunk_threshold = self.SAMPLE_RATE * 2 * 1.5
+        if len(buffer) < chunk_threshold:
             return ""
 
-        # Check RMS on last 0.5s
-        last_half_second = buffer[-int(self.SAMPLE_RATE * 0.5) * 2 :]
-        if len(last_half_second) < 2:
+        # Avoid overwhelming with too many transcriptions
+        last_process_time = self._silence_seconds.get(f"{session_id}_last_ts", 0)
+        if time.time() - last_process_time < 1.0:
             return ""
-        chunk_np = np.frombuffer(last_half_second, dtype=np.int16).astype(np.float32)
-        rms = float(np.sqrt(np.mean(chunk_np**2)) / 32768.0) if len(chunk_np) else 0.0
-
-        if rms < self.SILENCE_THRESHOLD:
-            self._silence_seconds[session_id] = self._silence_seconds.get(session_id, 0.0) + 0.5
-        else:
-            self._silence_seconds[session_id] = 0.0
-
-        if self._silence_seconds.get(session_id, 0.0) < 1.5:
+        
+        try:
+            # Decode and transcribe the current buffer
+            audio_np = np.frombuffer(buffer, dtype=np.int16).astype(np.float32) / 32768.0
+            result = await asyncio.to_thread(self.pipe, audio_np)
+            text = (result.get("text") or "").strip()
+            
+            self._silence_seconds[f"{session_id}_last_ts"] = time.time()
+            return text
+        except Exception as exc:
+            logger.error("whisper_stream_failed", error=str(exc))
             return ""
-
-        # transcribe and clear when silence enough
-        payload = self._stream_buffers.pop(session_id, b"")
-        self._silence_seconds[session_id] = 0.0
-        result = await self.transcribe(payload)
-        return result.get("text", "")
 
 
 whisper_service = WhisperService()

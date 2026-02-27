@@ -1,8 +1,30 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
-export default function VoiceRecorder({ isRecording, isProcessing, analyserNode, onToggle }) {
+export default function VoiceRecorder({
+  isRecording,
+  isProcessing,
+  analyserNode,
+  onToggle,
+  recordingBytes = 0,
+  recordingChunks = 0,
+  recordingElapsedMs = 0,
+}) {
   const canvasRef = useRef(null)
   const animFrameRef = useRef(null)
+
+  const elapsedLabel = useMemo(() => {
+    const totalSeconds = Math.floor((recordingElapsedMs || 0) / 1000)
+    const m = String(Math.floor(totalSeconds / 60)).padStart(2, '0')
+    const s = String(totalSeconds % 60).padStart(2, '0')
+    return `${m}:${s}`
+  }, [recordingElapsedMs])
+
+  const approxSeconds = useMemo(() => {
+    // If the browser is recording opus/webm, the byte size isn't PCM.
+    // Still useful as a rough "are we capturing anything" proof.
+    // 16kHz * 2 bytes * 1 channel = 32000 bytes/sec
+    return recordingBytes ? recordingBytes / 32000 : 0
+  }, [recordingBytes])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -116,6 +138,21 @@ export default function VoiceRecorder({ isRecording, isProcessing, analyserNode,
           <p className="text-[11px] font-medium text-slate-400 uppercase tracking-[0.2em]">
             {isProcessing ? 'Please wait a moment' : isRecording ? 'Click to stop session' : 'Voice Assistant Ready'}
           </p>
+
+          {isRecording && (
+            <div className="mt-2 rounded-2xl border border-slate-100 bg-white/70 px-4 py-3 backdrop-blur-sm shadow-inner w-full max-w-xs">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] font-semibold text-slate-600">
+                <div className="text-slate-400 uppercase tracking-widest text-[10px]">Elapsed</div>
+                <div className="font-mono text-right">{elapsedLabel}</div>
+                <div className="text-slate-400 uppercase tracking-widest text-[10px]">Bytes</div>
+                <div className="font-mono text-right">{recordingBytes.toLocaleString()}</div>
+                <div className="text-slate-400 uppercase tracking-widest text-[10px]">Chunks</div>
+                <div className="font-mono text-right">{recordingChunks.toLocaleString()}</div>
+                <div className="text-slate-400 uppercase tracking-widest text-[10px]">Approx sec</div>
+                <div className="font-mono text-right">{approxSeconds.toFixed(2)}</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

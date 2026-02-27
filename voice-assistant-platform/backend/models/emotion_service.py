@@ -51,7 +51,36 @@ class EmotionService:
             features["speech_rate_wpm"] = 120
 
         emotion_scores = self._score_emotions(features)
-        dominant_emotion = max(emotion_scores, key=emotion_scores.get)
+        
+        # Determine dominant emotion from scores
+        dominant_emotion = max(emotion_scores, key=lambda k: emotion_scores[k])
+        dominant_score = emotion_scores[dominant_emotion]
+
+        # Post-process: If transcript contains high-intensity keywords, 
+        # ensure dominant emotion reflects the sentiment even if audio features are subtle.
+        text_lower = (transcript or "").lower()
+        
+        # High intensity maps
+        stressed_keywords = ["pain", "hurt", "help", "emergency", "dying", "accident", "stop", "immediate", "urgent"]
+        hostile_keywords = ["hate", "hateful", "shut up", "idiot", "stupid", "dumb", "kill", "die", "annoying"]
+        sad_keywords = ["sad", "unhappy", "cry", "crying", "lonely", "alone", "depressed", "miserable", "broken"]
+        
+        if any(w in text_lower for w in stressed_keywords):
+            emotion_scores["stressed"] += 0.6
+            emotion_scores["calm"] = 0.01
+        elif any(w in text_lower for w in hostile_keywords):
+            emotion_scores["stressed"] += 0.5
+            emotion_scores["nervous"] += 0.2
+            emotion_scores["calm"] = 0.01
+        elif any(w in text_lower for w in sad_keywords):
+            emotion_scores["sad"] += 0.6
+            emotion_scores["calm"] = 0.01
+
+        # Re-normalize after keyword overrides
+        total = sum(emotion_scores.values())
+        emotion_scores = {k: v / total for k, v in emotion_scores.items()}
+        
+        dominant_emotion = max(emotion_scores, key=lambda k: emotion_scores[k])
         dominant_score = emotion_scores[dominant_emotion]
 
         suggestion = self._generate_suggestion(dominant_emotion, dominant_score, features)
@@ -100,74 +129,122 @@ class EmotionService:
         }
 
     def _score_emotions(self, features: dict) -> dict:
-        pitch = features.get("pitch_mean", 130)
-        pitch_std = features.get("pitch_std", 20)
-        wpm = features.get("speech_rate_wpm", 120)
-        pauses = features.get("pause_ratio", 0.2)
-        energy = features.get("energy_rms", 0.04)
-        tremor = features.get("tremor", 10)
+        pitch_mean = features.get("pitch_mean", 0)
+        pitch_std = features.get("pitch_std", 0)
+        pause_ratio = features.get("pause_ratio", 0)
+        speech_rate = features.get("speech_rate_wpm", 120)
 
-        scores = {}
-        stress = 0.0
-        if pitch > self.STRESS_INDICATORS["high_pitch_mean"]: stress += 0.3
-        if pitch_std > self.STRESS_INDICATORS["high_pitch_variation"]: stress += 0.2
-        if wpm > self.STRESS_INDICATORS["fast_speech_rate"]: stress += 0.25
-        if pauses < self.STRESS_INDICATORS["low_pause_ratio"]: stress += 0.15
-        if energy > self.STRESS_INDICATORS["high_energy"]: stress += 0.1
-        scores["stressed"] = min(stress, 1.0)
+        # Base scores
+        scores = {
+            "calm": 0.2,
+            "happy": 0.1,
+            "sad": 0.1,
+            "stressed": 0.1,
+            "nervous": 0.1,
+        }
 
-        nervous = 0.0
-        if wpm > self.NERVOUSNESS_INDICATORS["very_fast_speech"]: nervous += 0.3
-        if tremor > self.NERVOUSNESS_INDICATORS["high_tremor"]: nervous += 0.3
-        if pauses > self.NERVOUSNESS_INDICATORS["many_pauses"]: nervous += 0.2
-        if energy < self.NERVOUSNESS_INDICATORS["low_energy"]: nervous += 0.2
-        scores["nervous"] = min(nervous, 1.0)
+        # Stressed: High pitch, high variability, fast speech
+        if pitch_mean > 250 or pitch_std > 50 or speech_rate > 160:
+            scores["stressed"] += 0.5
+            scores["calm"] -= 0.2
 
+        # Happy: High pitch, moderate variability, moderate/fast speech
+        if 200 < pitch_mean < 300 and pitch_std > 30:
+            scores["happy"] += 0.4
+            scores["calm"] -= 0.1
+        # Excited: High pitch, high energy, low pauses
         excited = 0.0
-        if pitch > self.EXCITEMENT_INDICATORS["high_pitch"]: excited += 0.3
-        if wpm > self.EXCITEMENT_INDICATORS["fast_speech"]: excited += 0.25
-        if energy > self.EXCITEMENT_INDICATORS["high_energy"]: excited += 0.25
+        if pitch > self.EXCITEMENT_INDICATORS["high_pitch"]: excited += 0.4
+        if energy > self.EXCITEMENT_INDICATORS["high_energy"]: excited += 0.4
         if pauses < self.EXCITEMENT_INDICATORS["low_pauses"]: excited += 0.2
         scores["excited"] = min(excited, 1.0)
 
+        # Confident: Moderate pitch, low variation, moderate speech
         confident = 0.0
         lp, hp = self.CONFIDENCE_INDICATORS["moderate_pitch"]
-        if lp <= pitch <= hp: confident += 0.3
-        if pitch_std < self.CONFIDENCE_INDICATORS["low_variation"]: confident += 0.3
-        lw, hw = self.CONFIDENCE_INDICATORS["moderate_speech"]
-        if lw <= wpm <= hw: confident += 0.25
-        lpa, hpa = self.CONFIDENCE_INDICATORS["moderate_pauses"]
-        if lpa <= pauses <= hpa: confident += 0.15
+        if lp <= pitch <= hp: confident += 0.4
+        if pitch_std < self.CONFIDENCE_INDICATORS["low_variation"]: confident += 0.4
+        if 100 <= wpm <= 150: confident += 0.2
         scores["confident"] = min(confident, 1.0)
 
+        # Sad: Low pitch, low energy, slow speech
+        sad = 0.0
+        if 0 < pitch < 110: sad += 0.4
+        if energy < 0.02: sad += 0.4
+        if wpm < 90: sad += 0.2
+        scores["sad"] = min(sad, 1.0)
+
+        # Calm: Low energy, low tremor, moderate pauses
         calm = 0.0
-        if energy < 0.04: calm += 0.3
-        if pitch_std < 20: calm += 0.25
-        if 0.2 <= pauses <= 0.4: calm += 0.25
-        if tremor < 15: calm += 0.2
+        if energy < 0.05: calm += 0.3
+        if tremor < 15: calm += 0.3
+        if 0.15 <= pauses <= 0.45: calm += 0.2
         scores["calm"] = min(calm, 1.0)
 
-        sad = 0.0
-        if 0 < pitch < 120: sad += 0.3
-        if energy < 0.02: sad += 0.3
-        if wpm < 80: sad += 0.25
-        if pauses > 0.4: sad += 0.15
-        scores["sad"] = min(sad, 1.0)
+        # Add a bit of randomness to non-zero scores to prevent identical outputs
+        for k in scores:
+            if scores[k] > 0:
+                scores[k] = min(1.0, max(0.1, scores[k] + (random.random() * 0.1 - 0.05)))
+
         return scores
 
     def _text_only_fallback(self, transcript: str) -> dict:
         if not transcript:
             return self._neutral_result()
         text = transcript.lower()
+        # Keyword-driven fallback (used when audio feature extraction fails).
+        distress_terms = [
+            "pain",
+            "help",
+            "hurt",
+            "suicide",
+            "kill myself",
+            "die",
+            "can't go on",
+            "hopeless",
+            "panic",
+            "anxiety",
+            "scared",
+            "terrified",
+        ]
+        hate_terms = [
+            "hate",
+            "hateful",
+            "stupid",
+            "idiot",
+            "worthless",
+            "die",
+            "kill",
+            "shut up",
+        ]
+
+        distress_hits = sum(1 for w in distress_terms if w in text)
+        hate_hits = sum(1 for w in hate_terms if w in text)
+
         scores = {
-            "stressed": min(sum(w in text for w in ["stressed", "overwhelmed", "pressure", "exhausted"]) * 0.3, 1.0),
-            "nervous": min(sum(w in text for w in ["nervous", "anxious", "worried", "scared"]) * 0.3, 1.0),
+            "stressed": min(
+                (sum(w in text for w in ["stressed", "overwhelmed", "pressure", "exhausted"]) * 0.3)
+                + (distress_hits * 0.25)
+                + (hate_hits * 0.15),
+                1.0,
+            ),
+            "nervous": min(
+                (sum(w in text for w in ["nervous", "anxious", "worried", "scared", "panic"]) * 0.3)
+                + (distress_hits * 0.2),
+                1.0,
+            ),
             "excited": min(sum(w in text for w in ["excited", "amazing", "awesome", "fantastic"]) * 0.3, 1.0),
             "confident": min(sum(w in text for w in ["definitely", "absolutely", "certainly", "confident"]) * 0.3, 1.0),
-            "calm": 0.3,
-            "sad": min(sum(w in text for w in ["sad", "depressed", "upset", "hopeless"]) * 0.3, 1.0),
+            "sad": min(
+                (sum(w in text for w in ["sad", "depressed", "upset", "hopeless", "lonely"]) * 0.3)
+                + (distress_hits * 0.25),
+                1.0,
+            ),
+            "calm": 0.1,
         }
-        if max(scores.values()) == 0.3:
+
+        # If nothing triggers, default to calm.
+        if max(scores.values()) <= 0.15:
             scores["calm"] = 0.6
         dominant = max(scores, key=scores.get)
         return {

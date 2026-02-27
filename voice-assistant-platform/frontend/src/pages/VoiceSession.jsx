@@ -13,7 +13,25 @@ import { Page, PageActions, PageHeader, PageSubTitle, PageTitle } from '../compo
 import { Activity, Brain } from 'lucide-react'
 
 export default function VoiceSession() {
-  const { sessionId, isRecording, transcript, response, analysis, audioUrl, isProcessing, error, analyserNode, startRecording, stopRecording, stopSession } = useVoiceSession()
+  const {
+    sessionId,
+    isRecording,
+    transcript,
+    response,
+    analysis,
+    audioUrl,
+    isProcessing,
+    error,
+    analyserNode,
+    recordingBytes,
+    recordingChunks,
+    recordingElapsedMs,
+    backendBytes,
+    backendChunks,
+    startRecording,
+    stopRecording,
+    stopSession,
+  } = useVoiceSession()
 
   return (
     <Page className="max-w-5xl">
@@ -46,6 +64,16 @@ export default function VoiceSession() {
               <Badge variant={isProcessing ? 'warning' : isRecording ? 'danger' : sessionId ? 'success' : 'default'} className="px-4 py-1 text-[10px] font-black uppercase tracking-tighter">
                 {isProcessing ? '⚡ Analyzing...' : isRecording ? '🎙️ Recording' : sessionId ? '✅ Ready' : 'IDLE'}
               </Badge>
+
+              {sessionId && (
+                <div className="hidden sm:flex items-center gap-2 font-mono text-[11px] font-bold text-slate-600 bg-white/60 border border-white/60 px-3 py-1 rounded-xl">
+                  <span className="text-slate-400">server bytes</span>
+                  <span>{(backendBytes || 0).toLocaleString()}</span>
+                  <span className="text-slate-300">|</span>
+                  <span className="text-slate-400">chunks</span>
+                  <span>{(backendChunks || 0).toLocaleString()}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -64,7 +92,15 @@ export default function VoiceSession() {
           <div className="lg:col-span-8 space-y-8">
             <Card className="border-none shadow-2xl shadow-emerald-900/5 bg-white/60 backdrop-blur-2xl rounded-[2.5rem] overflow-hidden">
               <CardContent className="p-10">
-                <VoiceRecorder isRecording={isRecording} isProcessing={isProcessing} analyserNode={analyserNode} onToggle={isRecording ? stopRecording : startRecording} />
+                <VoiceRecorder
+                  isRecording={isRecording}
+                  isProcessing={isProcessing}
+                  analyserNode={analyserNode}
+                  onToggle={isRecording ? stopRecording : startRecording}
+                  recordingBytes={recordingBytes}
+                  recordingChunks={recordingChunks}
+                  recordingElapsedMs={recordingElapsedMs}
+                />
               </CardContent>
             </Card>
 

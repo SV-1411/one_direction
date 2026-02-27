@@ -1,7 +1,7 @@
 import time
 
 from config import settings
-from models.ollama_service import ollama_service
+from models.openrouter_service import openrouter_service
 from models.sentiment_service import sentiment_service
 from models.tts_service import tts_service
 from models.whisper_service import whisper_service
@@ -11,7 +11,7 @@ from models.emotion_service import emotion_service
 class ModelManager:
     def __init__(self):
         self.whisper_status = {"available": False, "model_name": settings.WHISPER_MODEL_SIZE, "load_time_ms": 0, "error": None}
-        self.ollama_status = {"available": False, "model_name": settings.OLLAMA_MODEL, "load_time_ms": 0, "error": None}
+        self.openrouter_status = {"available": False, "model_name": settings.OPENROUTER_MODEL, "load_time_ms": 0, "error": None}
         self.tts_status = {"available": False, "model_name": settings.TTS_MODEL, "load_time_ms": 0, "error": None}
         self.sentiment_status = {
             "available": False,
@@ -50,7 +50,7 @@ class ModelManager:
         }
 
         os = time.perf_counter()
-        ok = await ollama_service.check_availability()
+        ok = await openrouter_service.check_availability()
         try:
             self.emotion_status = {
                 "available": emotion_service.available,
@@ -61,18 +61,17 @@ class ModelManager:
         except Exception as e:
             self.emotion_status = {"available": False, "model_name": "librosa acoustic analysis", "load_time_ms": 0, "error": str(e)}
 
-        self.ollama_status = {
+        self.openrouter_status = {
             "available": ok,
-            "model_name": ollama_service.model_name,
+            "model_name": openrouter_service.model_name,
             "load_time_ms": int((time.perf_counter() - os) * 1000),
-            "error": ollama_service.error,
+            "error": openrouter_service.error,
         }
 
     async def warmup_all(self) -> None:
         if whisper_service.available:
             await whisper_service.transcribe(tts_service._generate_silent_wav(0.2))
-        if ollama_service.available:
-            await ollama_service.chat("Hello", [], "You are a test assistant.")
+        # Disabled OpenRouter warmup to avoid initial rate limits
         if sentiment_service.available:
             sentiment_service.analyze("This is a test message")
         if tts_service.available:
@@ -81,7 +80,7 @@ class ModelManager:
     async def get_health(self) -> dict:
         return {
             "whisper": self.whisper_status,
-            "ollama": self.ollama_status,
+            "openrouter": self.openrouter_status,
             "tts": self.tts_status,
             "sentiment": self.sentiment_status,
             "emotion": self.emotion_status,

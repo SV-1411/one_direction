@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { voiceAPI } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import useWebSocket from './useWebSocket'
@@ -12,6 +13,7 @@ function b64ToBlob(base64, type = 'audio/wav') {
 
 export default function useVoiceSession() {
   const [sessionId, setSessionId] = useState(null)
+  const navigate = useNavigate()
   const [isRecording, setIsRecording] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -21,9 +23,16 @@ export default function useVoiceSession() {
   const [audioUrl, setAudioUrl] = useState('')
   const [error, setError] = useState('')
   const [analyserNode, setAnalyserNode] = useState(null)
+  const [recordingBytes, setRecordingBytes] = useState(0)
+  const [recordingChunks, setRecordingChunks] = useState(0)
+  const [recordingStartedAt, setRecordingStartedAt] = useState(null)
+  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0)
+  const [backendBytes, setBackendBytes] = useState(0)
+  const [backendChunks, setBackendChunks] = useState(0)
 
   const mediaRecorderRef = useRef(null)
   const audioChunksRef = useRef([])
+  const recordingTimerRef = useRef(null)
   const wsHook = useWebSocket()
   const token = useAuthStore((s) => s.accessToken)
 
@@ -36,9 +45,12 @@ export default function useVoiceSession() {
     return data.session_id
   }
 
-  const startRecording = async () => {
+    const startRecording = async () => {
     try {
       const sid = sessionId || (await startSession())
+      setTranscript('')
+      setResponse('')
+      setAudioUrl('')
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true },
       })
@@ -50,21 +62,53 @@ export default function useVoiceSession() {
       source.connect(analyser)
       setAnalyserNode(analyser)
 
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
-      mediaRecorderRef.current = mediaRecorder
+      // Use ScriptProcessor or AudioWorklet to get raw PCM
+      const processor = audioContext.createScriptProcessor(4096, 1, 1)
+      source.connect(processor)
+      processor.connect(audioContext.destination)
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && wsHook.connectionState === 'open') {
-          const reader = new FileReader()
-          reader.onloadend = () => {
-            const base64 = reader.result.split(',')[1]
-            wsHook.sendMessage({ type: 'audio_chunk', data: base64 })
-          }
-          reader.readAsDataURL(event.data)
+      // Reset recording proof metrics
+      setRecordingBytes(0)
+      setRecordingChunks(0)
+      setBackendBytes(0)
+      setBackendChunks(0)
+      const startedAt = Date.now()
+      setRecordingStartedAt(startedAt)
+      setRecordingElapsedMs(0)
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingElapsedMs(Date.now() - startedAt)
+      }, 200)
+
+      processor.onaudioprocess = (e) => {
+        // console.log('onaudioprocess', isRecording);
+        const inputData = e.inputBuffer.getChannelData(0)
+        // Convert float32 to Int16 PCM
+        const pcmData = new Int16Array(inputData.length)
+        for (let i = 0; i < inputData.length; i++) {
+          pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF
+        }
+        
+        const buffer = pcmData.buffer
+        setRecordingBytes((prev) => prev + buffer.byteLength)
+        setRecordingChunks((prev) => prev + 1)
+
+        // ALWAYS SEND if ws is open, don't rely on isRecording state which might lag
+        if (wsHook.connectionState === 'open') {
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)))
+          wsHook.sendMessage({ type: 'audio_chunk', data: base64 })
         }
       }
 
-      mediaRecorder.start(250)
+      mediaRecorderRef.current = {
+        stop: () => {
+          processor.disconnect()
+          source.disconnect()
+          audioContext.close()
+        },
+        stream: stream
+      }
+
       setIsRecording(true)
       setError('')
     } catch (err) {
@@ -77,10 +121,20 @@ export default function useVoiceSession() {
       mediaRecorderRef.current.stop()
       mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop())
     }
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current)
+      recordingTimerRef.current = null
+    }
     wsHook.sendMessage({ type: 'end_stream' })
     setIsRecording(false)
     setIsProcessing(true)
   }
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
+    }
+  }, [])
 
   const stopSession = async () => {
     if (!sessionId) return
@@ -89,17 +143,36 @@ export default function useVoiceSession() {
     setIsConnected(false)
   }
 
-  useEffect(() => {
+    useEffect(() => {
     if (!wsHook.lastMessage) return
     const msg = wsHook.lastMessage
 
     switch (msg.type) {
+      case 'execute_actions':
+        if (msg.actions && Array.isArray(msg.actions)) {
+          msg.actions.forEach(action => {
+            console.log('[action] executing', action)
+            if (action.type === 'OPEN_URL') {
+              window.open(action.value, '_blank')
+            } else if (action.type === 'NAVIGATE') {
+              navigate(action.value)
+            }
+          })
+        }
+        break
+      case 'ingest_stats':
+        if (typeof msg.bytes_received === 'number') setBackendBytes(msg.bytes_received)
+        if (typeof msg.chunks_received === 'number') setBackendChunks(msg.chunks_received)
+        break
       case 'transcript_chunk':
         setTranscript((prev) => (msg.final ? msg.text : `${prev} ...`))
         break
       case 'transcript_final':
         setTranscript(msg.text)
-        setAnalysis(msg.analysis)
+        if (msg.analysis) {
+          console.log('Received Analysis:', msg.analysis);
+          setAnalysis(msg.analysis)
+        }
         break
       case 'response_chunk':
         setResponse((prev) => prev + msg.text)
@@ -114,9 +187,12 @@ export default function useVoiceSession() {
         setIsProcessing(false)
         const fullB64 = audioChunksRef.current.join('')
         audioChunksRef.current = []
-        const audioBlob = b64ToBlob(fullB64, 'audio/wav')
+        const audioBlob = b64ToBlob(fullB64, 'audio/mpeg')
         const url = URL.createObjectURL(audioBlob)
         setAudioUrl(url)
+        if (msg.emotion) {
+          setAnalysis(prev => ({ ...prev, emotion: msg.emotion }))
+        }
         break
       }
       case 'error':
@@ -139,6 +215,12 @@ export default function useVoiceSession() {
     isProcessing,
     error,
     analyserNode,
+    recordingBytes,
+    recordingChunks,
+    recordingStartedAt,
+    recordingElapsedMs,
+    backendBytes,
+    backendChunks,
     startSession,
     startRecording,
     stopRecording,

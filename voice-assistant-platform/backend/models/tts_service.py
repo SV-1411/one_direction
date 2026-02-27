@@ -4,61 +4,52 @@ import os
 import re
 import time
 import wave
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
 import numpy as np
-
+import edge_tts
 from config import settings
 from utils.logger import get_logger
 
 logger = get_logger("models.tts")
 
-try:
-    from TTS.api import TTS
-except Exception:  # pragma: no cover
-    TTS = None
-
 
 class TTSService:
     def __init__(self):
-        self.tts = None
-        self.available = False
-        self.model_name = settings.TTS_MODEL
+        self.available = True
+        self.model_name = "EdgeTTS (Cloud Fallback)"
+        self.voice = "en-US-AvaNeural"
         self.load_time_ms = 0
-        self.error: str | None = None
+        self.error = None
 
     async def load_model(self) -> None:
-        if TTS is None:
-            self.error = "TTS import unavailable"
-            return
-        start = time.perf_counter()
-        try:
-            self.tts = await asyncio.to_thread(TTS, self.model_name)
-            self.available = True
-            self.error = None
-            self.load_time_ms = int((time.perf_counter() - start) * 1000)
-        except Exception as exc:
-            self.available = False
-            self.error = str(exc)
+        self.available = True
+        logger.info("edge_tts_initialized", voice=self.voice)
 
     async def synthesize(self, text: str) -> bytes:
         processed = re.sub(r"\*\*|\*|_|#", "", (text or "")).replace("\n", " ").strip()[:500]
         if not processed:
             return self._generate_silent_wav(0.5)
 
-        os.makedirs(settings.AUDIO_STORAGE_PATH, exist_ok=True)
-        output_path = os.path.join(settings.AUDIO_STORAGE_PATH, f"{uuid4()}.wav")
-
         try:
-            if not self.available or self.tts is None:
-                return self._generate_silent_wav(1.0)
-            await asyncio.to_thread(self.tts.tts_to_file, text=processed, file_path=output_path)
-            with open(output_path, "rb") as f:
-                return f.read()
+            communicate = edge_tts.Communicate(processed, self.voice)
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+                temp_path = tmp.name
+
+            await communicate.save(temp_path)
+
+            with open(temp_path, "rb") as f:
+                audio_bytes = f.read()
+
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+            return audio_bytes
         except Exception as exc:
-            logger.error("tts_synthesize_failed", error=str(exc))
-            return self._generate_silent_wav(1.0)
+            logger.error("tts_synthesis_failed", error=str(exc))
+            return self._generate_silent_wav(0.5)
 
     async def synthesize_to_file(self, text: str) -> str:
         data = await self.synthesize(text)

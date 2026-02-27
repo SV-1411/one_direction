@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { useAuthStore } from '../store/authStore'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_URL = ''
 
 const client = axios.create({
   baseURL: API_URL,
@@ -9,7 +9,10 @@ const client = axios.create({
 })
 
 client.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().accessToken
+  let token = useAuthStore.getState().accessToken
+  if (!token) {
+    token = localStorage.getItem('accessToken')
+  }
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -76,6 +79,7 @@ export const analyticsAPI = {
   getSession: (sessionId) => client.get(`/api/analytics/session/${sessionId}`),
   getSessions: (params) => client.get('/api/analytics/sessions', { params }),
   getFraudAlerts: (params) => client.get('/api/analytics/fraud-alerts', { params }),
+  getEmotionTrends: () => client.get('/api/emotion/trends'),
 }
 
 export const integrationsAPI = {

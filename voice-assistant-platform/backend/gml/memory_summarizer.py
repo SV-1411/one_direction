@@ -10,7 +10,7 @@ class MemorySummarizer:
         from .entity_store import entity_store
         from .event_store import event_store
         from .relationship_store import relationship_store
-        from models.ollama_service import ollama_service
+        from models.openrouter_service import openrouter_service
 
         if not transcript or len(transcript.strip()) < 10:
             return {"entities": [], "relationships": [], "events": []}
@@ -18,7 +18,7 @@ class MemorySummarizer:
         extraction_prompt = f'''Analyze this conversation transcript and extract memory elements.\n\nTranscript: "{transcript}"\n\nExtract and return ONLY a JSON object with this exact structure:\n{{\n  "entities": [{{"name": "entity name", "type": "person|place|concept|object|organization", "context": "brief context"}}],\n  "relationships": [{{"subject": "entity name", "predicate": "relationship verb", "object": "entity name", "confidence": 0.0-1.0}}],\n  "events": [{{"description": "what happened", "participants": ["entity names"]}}]\n}}\n\nReturn valid JSON only, no explanation.'''
 
         try:
-            response_text = await ollama_service.chat(extraction_prompt, [], "You are a memory extraction AI. Return only valid JSON.")
+            response_text = await openrouter_service.chat(extraction_prompt, [], "You are a memory extraction AI. Return only valid JSON.")
             import json
             import re
 
@@ -59,14 +59,14 @@ class MemorySummarizer:
             return {"entities": [], "relationships": [], "events": []}
 
     async def create_weekly_snapshot(self, db, user_id: str) -> dict:
-        from models.ollama_service import ollama_service
+        from models.openrouter_service import openrouter_service
 
         week_ago = datetime.utcnow() - timedelta(days=7)
         recent_events = await db["gml_events"].find({"user_id": user_id, "timestamp": {"$gte": week_ago}}).sort("timestamp", 1).to_list(length=100)
         if not recent_events:
             return {}
         events_text = "\n".join(f"- {e['description']}" for e in recent_events[:30])
-        summary_text = await ollama_service.chat(f"Summarize these memory events into 2-3 concise sentences:\n{events_text}", [], "You are a memory summarizer. Be concise.")
+        summary_text = await openrouter_service.chat(f"Summarize these memory events into 2-3 concise sentences:\n{events_text}", [], "You are a memory summarizer. Be concise.")
         entity_count = await db["gml_entities"].count_documents({"user_id": user_id, "is_forgotten": False})
         rel_count = await db["gml_relationships"].count_documents({"user_id": user_id, "is_forgotten": False})
         snapshot = {"user_id": user_id, "snapshot_date": datetime.utcnow(), "summary": summary_text, "entity_count": entity_count, "relationship_count": rel_count, "events_summarized": len(recent_events)}

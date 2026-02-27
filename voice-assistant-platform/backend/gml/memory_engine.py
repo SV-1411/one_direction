@@ -77,9 +77,9 @@ class MemoryEngine:
         recall_result = await self.recall(db, user_id, question, top_k=10)
         if not recall_result["total_matches"]:
             return {"answer": "I don't have any memories related to that yet.", "confidence": 0.0, "supporting_memories": []}
-        from models.ollama_service import ollama_service
+        from models.openrouter_service import openrouter_service
 
-        answer = await ollama_service.chat(
+        answer = await openrouter_service.chat(
             f'''{recall_result["memory_context"]}\n\nBased on this memory context, answer:\n"{question}"\nBe specific and cite memory evidence.''',
             [],
             "You are a memory-aware AI assistant.",

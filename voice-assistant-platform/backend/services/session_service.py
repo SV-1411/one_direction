@@ -1,6 +1,8 @@
 import asyncio
+import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from bson import ObjectId
 
@@ -8,7 +10,7 @@ from config import settings
 from gml.memory_engine import memory_engine
 from database.mongo import get_database
 from models.emotion_service import emotion_service
-from models.ollama_service import SYSTEM_PROMPT, ollama_service
+from models.openrouter_service import SYSTEM_PROMPT, openrouter_service
 from models.sentiment_service import sentiment_service
 from models.tts_service import tts_service
 from models.whisper_service import whisper_service
@@ -45,10 +47,42 @@ class SessionService:
     async def process_audio_message(self, session_id: str, audio_bytes: bytes) -> dict:
         start_time = time.time()
 
+        # Input validation for audio_bytes
+        if not audio_bytes or len(audio_bytes) < 100:
+            logger.warning("process_audio_aborted", reason="audio_too_short", size=len(audio_bytes))
+            return {"error": "Audio data too short or empty", "transcript": ""}
+
+        # Persist raw audio bytes for debugging/proof
+        audio_filename = None
+        audio_path = None
+        audio_duration_estimate_s = 0.0
+        try:
+            # The browser is sending audio/webm;codecs=opus chunks, so this is not WAV.
+            # Store as .webm so it can be inspected later.
+            out_dir = Path(settings.AUDIO_STORAGE_PATH)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            audio_filename = f"{session_id}-{int(time.time() * 1000)}.webm"
+            audio_path = out_dir / audio_filename
+            audio_path.write_bytes(audio_bytes)
+            audio_duration_estimate_s = float(len(audio_bytes)) / 32000.0
+            logger.info(
+                "audio_saved",
+                session_id=session_id,
+                filename=audio_filename,
+                bytes_len=len(audio_bytes),
+                duration_estimate_s=audio_duration_estimate_s,
+            )
+        except Exception as exc:
+            logger.warning("audio_save_failed", session_id=session_id, error=str(exc))
+
         transcription = await whisper_service.transcribe(audio_bytes)
         transcript = transcription.get("text", "")
+        
         if not transcript.strip():
-            return {"error": "Could not transcribe audio", "transcript": ""}
+            # Check if there was an error in transcription result
+            error_msg = transcription.get("error", "Could not transcribe audio")
+            logger.warning("transcription_empty", session_id=session_id, error=error_msg)
+            return {"error": error_msg, "transcript": ""}
 
         db = await get_database()
         history = await self.get_session_history(session_id)
@@ -61,7 +95,7 @@ class SessionService:
                 memory_context = (await memory_engine.recall(db, uid, transcript, top_k=3)).get("memory_context", "")
             except Exception:
                 memory_context = ""
-        response_text = await ollama_service.chat(transcript, await self._build_ollama_history(history), SYSTEM_PROMPT, user_id=uid, db=db)
+        response_text = await openrouter_service.chat(transcript, await self._build_ollama_history(history), SYSTEM_PROMPT)
 
         sentiment_result = sentiment_service.analyze(transcript)
         urgency_score = urgency_service.score(transcript, sentiment_result)
@@ -89,7 +123,7 @@ class SessionService:
             transcript=transcript,
             response=response_text,
             analysis=analysis,
-            audio_path=None,
+            audio_path=str(audio_path) if audio_path else None,
         )
 
         await self._update_session_peaks(session_id, analysis)
@@ -132,7 +166,7 @@ class SessionService:
                 memory_context = (await memory_engine.recall(db, uid, transcript, top_k=3)).get("memory_context", "")
             except Exception:
                 memory_context = ""
-        response_text = await ollama_service.chat(transcript, await self._build_ollama_history(history), SYSTEM_PROMPT, user_id=uid, db=db)
+        response_text = await openrouter_service.chat(transcript, await self._build_ollama_history(history), SYSTEM_PROMPT)
         sentiment_result = sentiment_service.analyze(transcript)
         urgency_score = urgency_service.score(transcript, sentiment_result)
         fraud_result = fraud_service.evaluate(transcript, history)

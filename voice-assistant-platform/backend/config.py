@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     WHISPER_MODEL_SIZE: str = "base"
     OLLAMA_HOST: str = "http://ollama:11434"
     OLLAMA_MODEL: str = "llama3"
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_API_KEY: str | None = None
+    OPENROUTER_MODEL: str = "meta-llama/llama-3.2-3b-instruct:free"
+    OPENROUTER_APP_URL: str | None = None
+    OPENROUTER_APP_NAME: str = "AI Voice Assistant Platform"
     TTS_MODEL: str = "tts_models/en/ljspeech/tacotron2-DDC"
     HUGGINGFACE_TOKEN: str | None = None
 

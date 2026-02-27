@@ -45,10 +45,10 @@ async def health_check():
                 "model": model_status["whisper"]["model_name"],
                 "load_time_ms": model_status["whisper"]["load_time_ms"],
             },
-            "ollama": {
-                "available": model_status["ollama"]["available"],
-                "model": model_status["ollama"]["model_name"],
-                "host": settings.OLLAMA_HOST,
+            "openrouter": {
+                "available": model_status.get("openrouter", {}).get("available"),
+                "model": model_status.get("openrouter", {}).get("model_name"),
+                "base_url": settings.OPENROUTER_BASE_URL,
             },
             "tts": {
                 "available": model_status["tts"]["available"],

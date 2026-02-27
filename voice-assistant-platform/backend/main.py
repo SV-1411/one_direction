@@ -34,9 +34,16 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# CORS MUST BE ADDED FIRST - NO EXCEPTIONS
+add_cors(app)
+
+# Default root route to check if server is reachable
+@app.get("/")
+async def root():
+    return {"status": "online", "message": "AI Voice Assistant API"}
+
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
-add_cors(app)
 
 
 @app.exception_handler(RateLimitExceeded)
