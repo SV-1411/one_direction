@@ -1,7 +1,5 @@
 # Dependency directories
 node_modules/
-<<<<<<< HEAD
-=======
 jspm_packages/
 
 # Python virtual environments
@@ -9,31 +7,22 @@ jspm_packages/
 venv/
 ENV/
 env/
->>>>>>> backup-new-ui
 
 # Python caches
 __pycache__/
 *.py[cod]
-<<<<<<< HEAD
-=======
 *$py.class
 .pytest_cache/
 .mypy_cache/
->>>>>>> backup-new-ui
 
 # Build artifacts
 dist/
 build/
-<<<<<<< HEAD
-=======
 *.egg-info/
->>>>>>> backup-new-ui
 
 # Environment files
 .env
 .env.*
-<<<<<<< HEAD
-=======
 !.env.example
 
 # IDE and System files
@@ -42,4 +31,11 @@ build/
 .DS_Store
 Thumbs.db
 *.log
->>>>>>> backup-new-ui
+
+# Project specific
+voice-assistant-platform/backend/audio_storage/
+voice-assistant-platform/backend/whisper_cache/
+voice-assistant-platform/backend/temp_audio/
+*.webm
+*.wav
+*.mp3

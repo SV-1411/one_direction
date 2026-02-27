@@ -66,15 +66,15 @@ class EmotionService:
         sad_keywords = ["sad", "unhappy", "cry", "crying", "lonely", "alone", "depressed", "miserable", "broken"]
         
         if any(w in text_lower for w in stressed_keywords):
-            emotion_scores["stressed"] += 0.6
-            emotion_scores["calm"] = 0.01
+            emotion_scores["stressed"] = 0.9
+            emotion_scores["calm"] = 0.0
         elif any(w in text_lower for w in hostile_keywords):
-            emotion_scores["stressed"] += 0.5
-            emotion_scores["nervous"] += 0.2
-            emotion_scores["calm"] = 0.01
+            emotion_scores["stressed"] = 0.8
+            emotion_scores["nervous"] = 0.1
+            emotion_scores["calm"] = 0.0
         elif any(w in text_lower for w in sad_keywords):
-            emotion_scores["sad"] += 0.6
-            emotion_scores["calm"] = 0.01
+            emotion_scores["sad"] = 0.9
+            emotion_scores["calm"] = 0.0
 
         # Re-normalize after keyword overrides
         total = sum(emotion_scores.values())
@@ -128,40 +128,45 @@ class EmotionService:
             "duration": duration,
         }
 
-    def _score_emotions(self, features: dict) -> dict:
+    def _score_emotions(self, features: dict) -> dict[str, float]:
         pitch_mean = features.get("pitch_mean", 0)
         pitch_std = features.get("pitch_std", 0)
         pause_ratio = features.get("pause_ratio", 0)
         speech_rate = features.get("speech_rate_wpm", 120)
 
-        # Base scores
+        # Start with zero scores instead of high calm baseline
         scores = {
-            "calm": 0.2,
-            "happy": 0.1,
-            "sad": 0.1,
-            "stressed": 0.1,
-            "nervous": 0.1,
+            "calm": 0.05,
+            "happy": 0.05,
+            "sad": 0.05,
+            "stressed": 0.05,
+            "nervous": 0.05,
         }
 
         # Stressed: High pitch, high variability, fast speech
-        if pitch_mean > 250 or pitch_std > 50 or speech_rate > 160:
-            scores["stressed"] += 0.5
-            scores["calm"] -= 0.2
+        if pitch_mean > 220 or pitch_std > 40 or speech_rate > 150:
+            scores["stressed"] += 0.6
+        elif pitch_mean > 180 or pitch_std > 25:
+            scores["stressed"] += 0.3
 
-        # Happy: High pitch, moderate variability, moderate/fast speech
-        if 200 < pitch_mean < 300 and pitch_std > 30:
-            scores["happy"] += 0.4
-            scores["calm"] -= 0.1
-        # Excited: High pitch, high energy, low pauses
-        excited = 0.0
-        if pitch > self.EXCITEMENT_INDICATORS["high_pitch"]: excited += 0.4
-        if energy > self.EXCITEMENT_INDICATORS["high_energy"]: excited += 0.4
-        if pauses < self.EXCITEMENT_INDICATORS["low_pauses"]: excited += 0.2
-        scores["excited"] = min(excited, 1.0)
+        # Happy: High pitch, moderate variability
+        if 190 < pitch_mean < 280 and pitch_std > 25:
+            scores["happy"] += 0.5
 
-        # Confident: Moderate pitch, low variation, moderate speech
-        confident = 0.0
-        lp, hp = self.CONFIDENCE_INDICATORS["moderate_pitch"]
+        # Sad: Low pitch, slow speech, many pauses
+        if pitch_mean < 140 or pause_ratio > 0.25 or speech_rate < 100:
+            scores["sad"] += 0.6
+
+        # Nervous: High variability, many pauses
+        if pitch_std > 35 and pause_ratio > 0.15:
+            scores["nervous"] += 0.5
+
+        # Calm: only if nothing else is prominent
+        if max(scores.values()) <= 0.1:
+            scores["calm"] += 0.5
+
+        total = sum(scores.values())
+        return {k: v / total for k, v in scores.items()}
         if lp <= pitch <= hp: confident += 0.4
         if pitch_std < self.CONFIDENCE_INDICATORS["low_variation"]: confident += 0.4
         if 100 <= wpm <= 150: confident += 0.2
